@@ -99,7 +99,7 @@ async def test_setup():
 
     except Exception as e:
         print(f"   ❌ Setup test failed: {e}")
-        print("   💡 Check the error message above and refer to QUICKSTART.md")
+        print("   💡 Check the error message above and refer to README.md")
         return False
 
 
@@ -124,7 +124,7 @@ async def main():
         sys.exit(0)
     else:
         print("\n❌ Setup incomplete. Please fix the issues above and try again.")
-        print("📖 Refer to QUICKSTART.md for detailed setup instructions.")
+        print("📖 Refer to README.md for detailed setup instructions.")
         sys.exit(1)
 
 

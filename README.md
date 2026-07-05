@@ -1,65 +1,69 @@
 # Simple-Agent
 
-A Python project with two complementary layers:
-
-1. **RAG backend** — FastAPI + Supabase pgvector for document retrieval and citation-based Q&A
-2. **Multi-agent runtime** — Google ADK orchestrator that routes requests to specialist agents (e.g. SPX market analysis)
-
-The two systems share the repo but use different config modules and entry points. RAG and Agent are **not wired together yet**.
+A FastAPI backend for **Retrieval-Augmented Generation (RAG)** — document chunking, vector search via Supabase pgvector, and citation-based Q&A with OpenAI or Anthropic.
 
 ## Features
 
-### RAG
-
-- FastAPI with OpenAPI docs (`/docs`)
+- FastAPI with OpenAPI docs at `/docs`
 - Supabase + pgvector semantic search
+- OpenAI embeddings (`text-embedding-3-small`, 1536 dimensions)
 - OpenAI or Anthropic for answer generation
-- Chunking, embedding, citation extraction
+- Citation extraction from LLM responses
 - Static chat UI at `/chat`
 - Terminal client via `chatbot.py`
-
-### Agent (ADK)
-
-- Orchestrator → specialist routing (`orchestrator` → `market_analysis_agent`)
-- Structured JSON output via Pydantic schema
-- Session memory via ADK `InMemoryRunner` (in-process, not persisted)
-- CLI: `app/chat_cli.py`
-- HTTP routes defined under `app/api/` (not mounted on the RAG FastAPI app yet)
 
 ## Architecture
 
 ```
 Simple-Agent/
 ├── app/
-│   ├── main.py                 # RAG FastAPI app (/seed, /answer, /healthz)
-│   ├── core/                   # RAG config + Supabase client
-│   ├── models/                 # RAG request/response schemas
-│   ├── services/               # RAG pipeline (chunk, embed, search, chat)
-│   ├── data/                   # Default seed documents
-│   ├── ai/
-│   │   ├── agents/             # orchestrator + market_analysis agents
-│   │   ├── runtime/            # TextRuntimeService (ADK runner)
-│   │   ├── sessions/           # ADK session wrapper
-│   │   └── context/            # User message builder
-│   ├── api/                    # Agent HTTP routes (chat stream, sessions)
-│   ├── chat_cli.py             # Interactive agent CLI
-│   └── run_local_test.py       # Agent smoke test
-├── config/settings.py          # Agent / ADK settings
-├── sql/init_supabase.sql       # Supabase schema for RAG
-├── main.py                     # uvicorn entry (re-exports app.main:app)
-├── chatbot.py                  # RAG terminal client
-├── test_setup.py               # RAG end-to-end verification
-├── verify_rag.py               # Vector search proof script
-└── check_dimensions.py         # Embedding dimension checker
+│   ├── main.py              # FastAPI app (/seed, /answer, /healthz)
+│   ├── core/
+│   │   ├── config.py        # Environment settings
+│   │   └── database.py      # Supabase client + vector search
+│   ├── models/              # Request/response schemas
+│   ├── services/
+│   │   ├── rag.py           # RAG pipeline orchestration
+│   │   ├── chunker.py       # Text splitting
+│   │   ├── embedding.py     # OpenAI embeddings
+│   │   └── chat.py          # LLM answer generation
+│   └── data/
+│       └── default_documents.py
+├── sql/init_supabase.sql    # Database setup (run once in Supabase)
+├── main.py                  # uvicorn entry point
+├── chatbot.py               # Terminal RAG client
+├── test_setup.py            # End-to-end setup verification
+├── verify_rag.py            # Vector search proof script
+└── check_dimensions.py      # Embedding dimension checker
 ```
+
+## RAG Pipeline
+
+```
+POST /seed    →  chunk  →  embed  →  Supabase upsert
+POST /answer  →  embed query  →  vector_search  →  LLM + citations
+```
+
+| Step | File |
+|------|------|
+| HTTP routes | `app/main.py` |
+| Orchestration | `app/services/rag.py` |
+| Chunking | `app/services/chunker.py` |
+| Embeddings | `app/services/embedding.py` |
+| LLM answers | `app/services/chat.py` |
+| Database | `app/core/database.py` |
+| Config | `app/core/config.py` |
+
+Each `/answer` request is **stateless** — there is no conversation memory. Persistent knowledge lives in Supabase as document chunks.
 
 ## Prerequisites
 
 - Python 3.11+
-- **RAG:** Supabase project, OpenAI API key (Anthropic optional for chat)
-- **Agent:** Google Gemini API key, `google-adk` and `google-genai` packages
+- [Supabase](https://supabase.com) project (free tier is sufficient)
+- [OpenAI API key](https://platform.openai.com) (required for embeddings; also used for chat by default)
+- [Anthropic API key](https://console.anthropic.com) (optional, chat only)
 
-## Quick Start — RAG
+## Quick Start
 
 ### 1. Install dependencies
 
@@ -71,39 +75,19 @@ pip install -r requirements.txt
 
 ### 2. Configure environment
 
-Create `.env` in the project root with RAG variables:
-
-```env
-SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_ANON_KEY=your_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-
-OPENAI_API_KEY=sk-your_openai_key_here
-OPENAI_EMBED_MODEL=text-embedding-3-small
-OPENAI_CHAT_MODEL=gpt-4o
-AI_PROVIDER=openai
-
-ENVIRONMENT=development
-LOG_LEVEL=INFO
+```bash
+cp .env.example .env
 ```
 
-Optional Anthropic chat provider:
-
-```env
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your_anthropic_key_here
-ANTHROPIC_CHAT_MODEL=claude-3-5-sonnet-20240620
-OPENAI_API_KEY=sk-your_openai_key_here
-```
-
-Embeddings always use OpenAI regardless of chat provider.
+Edit `.env` and fill in your Supabase and OpenAI credentials (see [Required credentials](#required-credentials) below).
 
 ### 3. Initialize Supabase
 
-1. Open Supabase Dashboard → SQL Editor
-2. Paste and run the full contents of `sql/init_supabase.sql`
+1. Create a project at [supabase.com](https://supabase.com)
+2. Open **SQL Editor** in the dashboard
+3. Paste and run the full contents of `sql/init_supabase.sql`
 
-This creates the `rag_chunks` table with `VECTOR(1536)` (matching `text-embedding-3-small`), indexes, `match_chunks()` RPC, and RLS policies.
+This creates the `rag_chunks` table (`VECTOR(1536)`), indexes, the `match_chunks()` search function, and RLS policies.
 
 ### 4. Verify setup
 
@@ -137,141 +121,84 @@ Or use the terminal client:
 python chatbot.py
 ```
 
-## Quick Start — Agent (ADK)
+## Required credentials
 
-### 1. Install ADK dependencies
+To run RAG locally you need **all** of the following:
 
-`requirements.txt` covers the RAG stack only. For agents, also install:
+| What | Why | Where to get it |
+|------|-----|-----------------|
+| **Supabase project** | Stores document vectors | [supabase.com](https://supabase.com) → New project |
+| **SUPABASE_URL** | API endpoint | Supabase → Settings → API → Project URL |
+| **SUPABASE_ANON_KEY** | Public client key | Supabase → Settings → API → anon public |
+| **SUPABASE_SERVICE_ROLE_KEY** | Backend write/search access | Supabase → Settings → API → service_role secret |
+| **OPENAI_API_KEY** | Embeddings + chat (default) | [platform.openai.com](https://platform.openai.com) → API Keys |
+| **SQL init script run** | Creates tables and search function | Run `sql/init_supabase.sql` in Supabase SQL Editor |
 
-```bash
-pip install google-adk google-genai
-```
+Optional:
 
-### 2. Configure environment
+| What | When needed |
+|------|-------------|
+| **ANTHROPIC_API_KEY** | Only if `AI_PROVIDER=anthropic` (embeddings still use OpenAI) |
 
-Copy agent variables into `.env` (see `.env.example`):
+## API Reference
 
-```env
-ADK_APP_NAME=market_agent
-APP_VERSION=0.1.0
-EXPOSE_API_DOCS=true
-AGENT_THINKING_ENABLED=true
-
-GOOGLE_GENAI_USE_VERTEXAI=0
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_TEXT_MODEL_DEFAULT=gemini-2.5-flash
-
-OPENAI_API_KEY=
-OPENAI_TEXT_MODEL_DEFAULT=gpt-4o-mini
-OPENAI_TEXT_MODEL_CHEAP=gpt-4o-mini
-OPENAI_TEXT_MODEL_HEAVY=gpt-4o
-OPENAI_EMBED_MODEL_DEFAULT=text-embedding-3-small
-OPENAI_IMAGE_MODEL_DEFAULT=gpt-image-1
-OPENAI_TTS_MODEL_DEFAULT=gpt-4o-mini-tts
-OPENAI_REALTIME_MODEL_DEFAULT=gpt-4o-realtime-preview
-```
-
-Agent settings are loaded from `config/settings.py`. RAG settings come from `app/core/config.py`. A single `.env` can hold both sets of variables.
-
-### 3. Run the CLI
+### Health check
 
 ```bash
-python -m app.chat_cli
+curl http://localhost:8000/healthz
 ```
 
-Creates an ADK session, then streams orchestrator / specialist responses in the terminal.
-
-### 4. Run the local test
+### Seed knowledge base
 
 ```bash
-python -m app.run_local_test
+curl -X POST http://localhost:8000/seed
 ```
 
-Sends a sample SPX analysis prompt and validates output against `MarketAnalysisResult`.
+### Ask a question
 
-### Agent HTTP API (not mounted yet)
-
-Routes are defined in `app/api/`:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/sessions` | Create ADK session |
-| POST | `/chat/stream` | SSE stream from orchestrator |
-
-To expose them, mount `app.api.router.api_router` on a FastAPI app (separate from or merged with `app/main.py`).
-
-## RAG Pipeline
-
-```
-/seed  →  chunker  →  embedding  →  Supabase upsert
-/answer  →  embed query  →  vector_search  →  LLM + citations
+```bash
+curl -X POST http://localhost:8000/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is your return policy?", "top_k": 6}'
 ```
 
-| Step | File |
-|------|------|
-| HTTP routes | `app/main.py` |
-| Orchestration | `app/services/rag.py` |
-| Chunking | `app/services/chunker.py` |
-| Embeddings | `app/services/embedding.py` |
-| LLM answers | `app/services/chat.py` |
-| Database | `app/core/database.py` |
-| Config | `app/core/config.py` |
+Example response:
 
-RAG has **no conversation memory** — each `/answer` call is stateless. Persistent storage is the document knowledge base in Supabase.
-
-## Agent Pipeline
-
+```json
+{
+  "text": "You can return unworn items within 30 days [policy_returns_v1#1]...",
+  "citations": ["policy_returns_v1#1"],
+  "debug": {
+    "top_doc_ids": ["policy_returns_v1#1"],
+    "latency_ms": 1250
+  }
+}
 ```
-user message  →  TextRuntimeService  →  InMemoryRunner
-  →  orchestrator_agent  →  market_analysis_agent  →  JSON response
-```
-
-| Step | File |
-|------|------|
-| Runtime | `app/ai/runtime/text_runtime_service.py` |
-| Orchestrator | `app/ai/agents/orchestrator/` |
-| Specialist | `app/ai/agents/market_analysis/` |
-| Output schema | `app/ai/agents/market_analysis/schema.py` |
-| Session memory | `app/ai/sessions/adk_session_service.py` |
-| Config | `config/settings.py` |
-
-Agent **memory** is ADK session history keyed by `user_id` + `session_id`. The current `InMemoryRunner` stores sessions in process memory (lost on restart).
 
 ## Configuration
 
-### RAG (`app/core/config.py`)
+Settings are loaded from `.env` via `app/core/config.py`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `chunk_size` | 400 | Approximate tokens per chunk |
-| `chunk_overlap` | 60 | Overlap between chunks |
-| `default_top_k` | 6 | Chunks retrieved per query |
-| `temperature` | 0.1 | LLM temperature |
-| `embedding_dimensions` | 1536 | Must match Supabase `VECTOR(1536)` |
-
-Override via env: `OPENAI_EMBED_MODEL`, `OPENAI_CHAT_MODEL`, `AI_PROVIDER`, etc.
-
-### Agent (`config/settings.py`)
-
-| Variable | Description |
-|----------|-------------|
-| `ADK_APP_NAME` | ADK application identifier |
-| `GEMINI_API_KEY` | Required for agent inference |
-| `GEMINI_TEXT_MODEL_DEFAULT` | Model for orchestrator and specialists |
-| `AGENT_THINKING_ENABLED` | Stream chain-of-thought as SSE events |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model (1536 dims) |
+| `OPENAI_CHAT_MODEL` | `gpt-4o` | Chat model when `AI_PROVIDER=openai` |
+| `AI_PROVIDER` | `openai` | `openai` or `anthropic` |
+| `chunk_size` | 400 | Approximate tokens per chunk (in code) |
+| `chunk_overlap` | 60 | Overlap between chunks (in code) |
+| `default_top_k` | 6 | Chunks retrieved per query (in code) |
+| `temperature` | 0.1 | LLM temperature (in code) |
 
 ## Utility Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `test_setup.py` | Full RAG setup verification |
+| `test_setup.py` | Full setup verification (imports, DB, seed, query) |
 | `verify_rag.py` | Prove vector similarity search is working |
 | `check_dimensions.py` | Inspect embedding dimensions in Supabase |
-| `chatbot.py` | Rich terminal UI for RAG `/answer` |
+| `chatbot.py` | Rich terminal UI for `/answer` |
 
 ## Docker
-
-The Dockerfile deploys the **RAG FastAPI app** only:
 
 ```bash
 docker build -t simple-agent .
@@ -283,7 +210,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloud Run instructions.
 ## Development
 
 ```bash
-black app/ config/
-isort app/ config/
-flake8 app/ config/
+black app/
+isort app/
+flake8 app/
 ```
