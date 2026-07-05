@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .core.config import get_settings
@@ -74,18 +74,23 @@ async def favicon():
     return Response(status_code=204)
 
 
-@app.get("/", tags=["General"])
+@app.get("/", tags=["General"], include_in_schema=False)
 async def root():
+    return RedirectResponse(url="/chat")
+
+
+@app.get("/api", tags=["General"])
+async def api_info():
     return {
         "message": "Welcome to RAG AI Agent Backend",
         "version": "1.0.0",
+        "chat_ui": "/chat",
         "docs": "/docs",
         "endpoints": {
             "health": "/healthz",
             "seed": "/seed",
             "answer": "/answer",
             "documents": "/documents",
-            "greet": "/greet/{name}",
         },
     }
 
