@@ -573,7 +573,6 @@
 
             <div class="tab-content" id="documentsTab">
                 <div id="documentsContainer">
-                    <!-- Documents will be loaded here -->
                 </div>
             </div>
 
@@ -604,7 +603,6 @@
     <div class="notification" id="notification"></div>
 
     <script>
-        // Automatically detect the correct API base URL
         const API_BASE_URL = window.location.origin;
         const messagesContainer = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
@@ -618,7 +616,6 @@
         let documents = [];
         let currentTab = 'documents';
 
-        // Initialize the application
         init();
 
         async function init() {
@@ -627,7 +624,6 @@
             messageInput.focus();
         }
 
-        // Send message on Enter key
         messageInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -658,7 +654,6 @@
 
         async function loadDocuments() {
             try {
-                // Fetch documents from the API
                 const response = await fetch(`${API_BASE_URL}/documents`);
                 if (response.ok) {
                     const data = await response.json();
@@ -666,12 +661,10 @@
                     console.log(`✅ Loaded ${documents.length} documents from API`);
                 } else {
                     console.warn('Failed to fetch documents from API, using fallback');
-                    // Fallback to empty array - user can add documents manually
                     documents = [];
                 }
             } catch (error) {
                 console.error('Error loading documents:', error);
-                // Fallback to empty array
                 documents = [];
             }
 
@@ -710,13 +703,11 @@
         function switchTab(tabName) {
             currentTab = tabName;
             
-            // Update tab buttons
             document.querySelectorAll('.tab-button').forEach(btn => {
                 btn.classList.remove('active');
             });
             document.querySelector(`button[onclick="switchTab('${tabName}')"]`).classList.add('active');
             
-            // Show/hide tab content
             document.getElementById('documentsTab').style.display = tabName === 'documents' ? 'block' : 'none';
             document.getElementById('settingsTab').style.display = tabName === 'settings' ? 'block' : 'none';
         }
@@ -825,7 +816,6 @@
             const message = messageInput.value.trim();
             if (!message) return;
 
-            // Add user message
             addMessage(message, true);
             messageInput.value = '';
             sendBtn.disabled = true;
