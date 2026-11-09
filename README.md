@@ -24,6 +24,7 @@ Simple-Agent/
 │   ├── models/              # Request/response schemas
 │   ├── services/
 │   │   ├── rag.py           # RAG pipeline orchestration
+│   │   ├── retrieval.py     # Knowledge-base search without answer generation
 │   │   ├── chunker.py       # Text splitting
 │   │   ├── embedding.py     # OpenAI embeddings
 │   │   └── chat.py          # LLM answer generation
@@ -48,6 +49,7 @@ POST /answer  →  embed query  →  vector_search  →  LLM + citations
 |------|------|
 | HTTP routes | `app/main.py` |
 | Orchestration | `app/services/rag.py` |
+| Knowledge-base retrieval | `app/services/retrieval.py` |
 | Chunking | `app/services/chunker.py` |
 | Embeddings | `app/services/embedding.py` |
 | LLM answers | `app/services/chat.py` |

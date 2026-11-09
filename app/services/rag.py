@@ -8,6 +8,7 @@ from ..data.default_documents import DEFAULT_DOCUMENTS
 from .chat import chat_service
 from .chunker import chunker
 from .embedding import embedding_service
+from .retrieval import retrieve_context
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,9 @@ class RAGService:
         start_time = time.time()
 
         try:
-            query_embedding = await self.embedding_service.embed_query(query)
-            search_results = await self.db.vector_search(query_embedding, top_k)
+            context_blocks = await retrieve_context(query, top_k)
 
-            if not search_results:
+            if not context_blocks:
                 return {
                     "text": "I don't have enough information to answer your question. Could you please rephrase or provide more context?",
                     "citations": [],
@@ -64,7 +64,6 @@ class RAGService:
                     },
                 }
 
-            context_blocks = self._prepare_context(search_results)
             answer_text = await self.chat_service.generate_answer(query, context_blocks)
             citations = self._extract_citations(answer_text, context_blocks)
 
@@ -92,24 +91,6 @@ class RAGService:
                     "latency_ms": int((time.time() - start_time) * 1000),
                 },
             }
-
-    def _prepare_context(self, search_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen_prefixes: set[str] = set()
-        context_blocks: list[dict[str, Any]] = []
-
-        for result in search_results:
-            chunk_id = result.get("chunk_id", "")
-            base_id = chunk_id.split("#")[0] if "#" in chunk_id else chunk_id
-
-            if base_id not in seen_prefixes:
-                context_blocks.append(result)
-                seen_prefixes.add(base_id)
-
-            if len(context_blocks) >= 4:
-                break
-
-        logger.info(f"Prepared {len(context_blocks)} unique context blocks")
-        return context_blocks
 
     def _extract_citations(self, answer_text: str, context_blocks: list[dict[str, Any]]) -> list[str]:
         citation_pattern = r"\[([^\]]+)\]"
